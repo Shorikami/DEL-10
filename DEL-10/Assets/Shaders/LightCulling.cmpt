@@ -1,0 +1,156 @@
+#version 450 core
+
+layout(std140, binding = 0) readonly uniform Lights
+{
+  vec4 position[10000];
+  vec4 colorRadius[10000]; // xyz = color, w = radius
+} lightBuffer;
+
+layout(std430, binding = 1) writeonly buffer VisibilityBuffer
+{
+	int idx[];
+} visibility;
+
+uniform sampler2D depthMap;
+
+uniform mat4 projection;
+uniform mat4 view;
+uniform int numLights;
+uniform ivec2 screenSize;
+uniform vec2 zPlanes;
+
+shared uint maxDepth;
+shared uint minDepth;
+shared uint visibleLights;
+shared int visibleIndices[10000];
+shared vec4 frustum[6];
+shared mat4 viewProjection;
+
+layout (local_size_x = 32, local_size_y = 32) in;
+void main()
+{
+	ivec2 pxLoc = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 tile = ivec2(gl_WorkGroupID.xy);
+	uint xAmount = gl_NumWorkGroups.x;
+	uint idx = (tile.y * xAmount) + tile.x;
+	
+	// Global variables
+	maxDepth = 0;
+	minDepth = 0xFFFFFFFF;
+	visibleLights = 0;
+	viewProjection = projection * view;
+	
+	barrier();
+	
+	// Calculate tile's min/max z-value
+	vec2 px = vec2(pxLoc) / screenSize;
+	float depth = texture(depthMap, px).r;
+	float linearDepth = (0.5f * projection[3][2]) / (depth + 0.5f * projection[2][2] - 0.5f);
+	
+	// Cuts frames in half?
+	//float maxZ = max(zPlanes.y, linearDepth);
+	//float minZ = min(zPlanes.x, linearDepth);
+	//
+	//atomicMin(minDepth, floatBitsToUint(minZ));
+	//atomicMax(maxDepth, floatBitsToUint(maxZ));
+	
+	// Generates same result(?)
+	float maxZ;
+	float minZ;
+
+	atomicMin(minDepth, floatBitsToUint(linearDepth));
+	atomicMax(maxDepth, floatBitsToUint(linearDepth));
+	
+	barrier();
+	
+	// Pixel frustum, invoke one time
+	if (gl_LocalInvocationIndex == 0)
+	{
+		minZ = uintBitsToFloat(minDepth);
+		maxZ = uintBitsToFloat(maxDepth);
+		
+		// Create tile frustums
+		vec2 v0 = (2.0f * vec2(tile)) / vec2(gl_NumWorkGroups.xy);
+		vec2 v1 = (2.0f * vec2(tile + ivec2(1, 1))) / vec2(gl_NumWorkGroups.xy);
+		
+		// Left
+		frustum[0] = vec4(1.0f, 0.0f, 0.0f, 1.0f - v0.x);
+		
+		// Right
+		frustum[1] = vec4(-1.0f, 0.0f, 0.0f, -1.0f + v1.x);
+		
+		// Bottom
+		frustum[2] = vec4(0.0f, 1.0f, 0.0f, 1.0f - v0.y);
+		
+		// Top
+		frustum[3] = vec4(0.0, -1.0f, 0.0f, -1.0f + v1.y);
+		
+		// Near
+		frustum[4] = vec4(0.0f, 0.0f, -1.0f, minZ);
+		
+		// Far
+		frustum[5] = vec4(0.0f, 0.0f, 1.0f, maxZ);
+
+		// Sides
+		for (uint i = 0; i < 4; ++i) 
+		{
+			frustum[i] *= viewProjection;
+			frustum[i] /= length(frustum[i].xyz);
+		}
+
+		// Near/far planes
+		frustum[4] *= view;
+		frustum[5] *= view;
+		frustum[4] /= length(frustum[4].xyz);
+		frustum[5] /= length(frustum[5].xyz);
+	}
+	
+	barrier();
+	
+	// Cull appropriate lights
+	uint threads = 32 * 32;
+	uint iter = (numLights + threads - 1) / threads;
+	
+	for (uint i = 0; i < iter; ++i)
+	{
+		uint lightIdx = (i * threads) + gl_LocalInvocationIndex;
+		
+		if (lightIdx >= numLights)
+			break;
+		
+		vec4 pos = lightBuffer.position[lightIdx];
+		float radius = lightBuffer.colorRadius[lightIdx].w;
+		
+		float dist = 0.0f;
+		
+		// Check to see if within frustum
+		for (uint ii = 0; ii < 6; ++ii)
+		{
+			dist = dot(pos, frustum[ii]) + radius;
+			
+			// Outside of frustum, stop early
+			if (dist <= 0.0f)
+				break;
+		}
+		
+		// Mark as a visible index
+		if (dist > 0.0f)
+		{
+			uint offset = atomicAdd(visibleLights, 1);
+			visibleIndices[offset] = int(lightIdx);
+		}
+	}
+	
+	barrier();
+	
+	
+	uint o = idx * numLights;
+	
+	// Add visible indices
+	for (uint i = 0; i < visibleLights; ++i)
+		visibility.idx[o + i] = visibleIndices[i];
+	
+	// Mark last index as -1 to stop early in lighting calculation
+	if (visibleLights != numLights)
+		visibility.idx[o + visibleLights] = -1;
+}

@@ -4,10 +4,6 @@
 #include <glad/glad.h>
 #include <glm.hpp>
 
-#define NUM_LIGHTS 1
-#define MAX_LIGHTS 200 // breaks after going beyond 32 because ubo info is passed in incorrectly, pls fix later
-// ^^ note: breaks when the shader ubo info is not correct, or goes beyond 16KB (16k bytes)
-
 namespace DEL10
 {
 	template <typename T>
@@ -51,13 +47,14 @@ namespace DEL10
 
 	class Light
 	{
-		glm::vec4 position;
-		glm::vec4 colorRadius; // xyz = color, w = radius
+	public:
+		glm::vec4 position[10000];
+		glm::vec4 colorRadius[10000]; // xyz = color, w = radius
 	};
 
 	class VisibilityIdx
 	{
-		glm::ivec4 idx;
+		int idx;
 	};
 }
 

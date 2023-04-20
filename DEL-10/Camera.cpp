@@ -1,61 +1,84 @@
 #include <dlpch.h>
 #include "Camera.h"
 
-glm::mat4 Camera::GetViewMatrix()
+Camera::Camera(glm::vec3 pos)
+	: cameraPos(pos)
+	, yaw(0.0f)
+	, pitch(0.0f)
+	, speed(2.5f)
+	, zoom(45.0f)
+	, front(glm::vec3(0.0f, 0.0f, -1.0f))
+	, n(0.1f)
+	, f(300.0f)
 {
-    return glm::lookAt(Position, Position + Front, Up);
+	UpdateCameraVectors();
 }
 
-
-void Camera::ProcessKeyboard(Camera_Movement direction, float deltaTime)
+void Camera::UpdateCameraDir(double dx, double dy)
 {
-    float velocity = MovementSpeed * deltaTime;
-    if (direction == FORWARD)
-        Position += Front * velocity;
-    if (direction == BACKWARD)
-        Position -= Front * velocity;
-    if (direction == LEFT)
-        Position -= Right * velocity;
-    if (direction == RIGHT)
-        Position += Right * velocity;
+	if (rotateCamera)
+	{
+		yaw += dx;
+		pitch += dy;
+
+		if (pitch > 89.0f)
+		{
+			pitch = 89.0f;
+		}
+		else if (pitch < -89.0f)
+		{
+			pitch = -89.0f;
+		}
+
+		UpdateCameraVectors();
+	}
 }
 
-void Camera::ProcessMouseMovement(float xoffset, float yoffset, GLboolean constrainPitch)
+void Camera::UpdateCameraPos(CameraDirection dir, double dt)
 {
-    xoffset *= MouseSensitivity;
-    yoffset *= MouseSensitivity;
+	float velocity = (float)dt * speed;
 
-    Yaw += xoffset;
-    Pitch += yoffset;
-
-    if (constrainPitch)
-    {
-        if (Pitch > 89.0f)
-            Pitch = 89.0f;
-        if (Pitch < -89.0f)
-            Pitch = -89.0f;
-    }
-
-    updateCameraVectors();
+	switch (dir)
+	{
+	case CameraDirection::FORWARD:
+		cameraPos += front * velocity;
+		break;
+	case CameraDirection::BACKWARDS:
+		cameraPos -= front * velocity;
+		break;
+	case CameraDirection::RIGHT:
+		cameraPos += glm::normalize(glm::cross(front, up)) * velocity;
+		break;
+	case CameraDirection::LEFT:
+		cameraPos -= glm::normalize(glm::cross(front, up)) * velocity;
+		break;
+	}
 }
 
-void Camera::ProcessMouseScroll(float yoffset)
+void Camera::UpdateCameraZoom(double dy)
 {
-    Zoom -= (float)yoffset;
-    if (Zoom < 1.0f)
-        Zoom = 1.0f;
-    if (Zoom > 45.0f)
-        Zoom = 45.0f;
+	if (zoom >= 1.0f && zoom <= 45.0f)
+	{
+		zoom -= dy;
+	}
+	else if (zoom < 1.0f)
+	{
+		zoom = 1.0f;
+	}
+	else
+	{
+		zoom = 45.0f;
+	}
 }
 
-void Camera::updateCameraVectors()
+void Camera::UpdateCameraVectors()
 {
-    glm::vec3 front;
-    front.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-    front.y = sin(glm::radians(Pitch));
-    front.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-    Front = glm::normalize(front);
+	glm::vec3 dir;
+	dir.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+	dir.y = sin(glm::radians(pitch));
+	dir.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+	front = glm::normalize(dir);
 
-    Right = glm::normalize(glm::cross(Front, WorldUp));
-    Up = glm::normalize(glm::cross(Right, Front));
+	right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+	up = glm::normalize(glm::cross(right, front));
 }
