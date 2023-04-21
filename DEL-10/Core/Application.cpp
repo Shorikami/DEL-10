@@ -113,7 +113,7 @@ void InitLights()
     for (unsigned i = 0; i < MAX_LIGHTS; ++i)
     {
         float xPos = RandomNum(-150.0f, 150.0f);
-        float yPos = RandomNum(-10.0f, 150.0f);
+        float yPos = RandomNum(1.0f, 5.0f);
         float zPos = RandomNum(-80.0f, 80.0f);
         float range = RandomNum(globalRadius, globalRadius);
 
@@ -132,8 +132,11 @@ void InitScene()
     computeWorkX = (ScreenSize.x + (ScreenSize.x % 32)) / 32;
     computeWorkY = (ScreenSize.y + (ScreenSize.y % 32)) / 32;
     size_t tiles = computeWorkX * computeWorkY;
-    size_t size = tiles * sizeof(DEL10::VisibilityIdx) * 10000;
 
+    // fixed storage buffer size
+    size_t size = tiles * sizeof(DEL10::VisibilityIdx) * MAX_LIGHTS;
+
+    // uniform buffer for lights
     m_LightBuffer = new DEL10::UniformBuffer<DEL10::Light>(0);
 
     glGenBuffers(1, &m_Visibility);
@@ -179,7 +182,7 @@ void Update()
     float min = -80.0f;
     float max = 80.0f;
 
-    for (unsigned i = 0; i < numLights; ++i)
+    for (int i = 0; i < numLights; ++i)
     {
         lightBuffer.colorRadius[i].w = globalRadius;
         lightBuffer.position[i].z = lightBuffer.position[i].z + sinf(angleOfRotation) * 0.1f;
@@ -208,7 +211,7 @@ void UpdateImGUI()
     ImGui::SameLine(); ImGui::Text("Camera Position: (%.2f, %.2f, %.2f)", 
         m_Camera.cameraPos.x, m_Camera.cameraPos.y, m_Camera.cameraPos.z);
 
-    ImGui::SliderInt("Light Count", &numLights, 1, 10000);
+    ImGui::SliderInt("Light Count", &numLights, 1, MAX_LIGHTS);
     ImGui::SliderFloat("Light Radius (Global)", &globalRadius, 0.1f, 50.0f);
     ImGui::SliderFloat("Camera Speed", &m_Camera.speed, 0.1f, 25.0f);
 
@@ -332,7 +335,7 @@ int main()
         m_LightCulling->SetMat4("view", view);
         m_LightCulling->SetInt("numLights", numLights);
         m_LightCulling->SetVec2("zPlanes", glm::vec2(m_Camera.n, m_Camera.f));
-        glUniform2iv(glGetUniformLocation(m_LightCulling->ID, "screenSize"), 1, &ScreenSize[0]);
+        m_LightCulling->SetVec2I("screenSize", ScreenSize);
 
         glActiveTexture(GL_TEXTURE10);
         glBindTexture(GL_TEXTURE_2D, depthMap);
@@ -442,6 +445,31 @@ int main()
     }
 
     glfwTerminate();
+
+    delete m_Sponza;
+    delete m_Sphere;
+
+    delete m_DepthPass;
+    delete m_DepthDisplay;
+
+    delete m_Lighting;
+    delete m_LightingForward;
+    delete m_LightCulling;
+
+    delete m_FSQ;
+    delete m_FlatShader;
+
+    delete m_LightBuffer;
+    glDeleteBuffers(1, &m_Visibility);
+
+    glDeleteTextures(1, &sceneTexture);
+    glDeleteTextures(1, &depthMap);
+
+    glDeleteFramebuffers(1, &depthFBO);
+    glDeleteFramebuffers(1, &sceneFBO);
+
+    glDeleteRenderbuffers(1, &depthRBO);
+
     return 0;
 }
 
